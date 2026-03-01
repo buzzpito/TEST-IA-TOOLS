@@ -97,6 +97,19 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // User APIs
+  app.post("/api/change-password", (req, res) => {
+    const { email, oldPassword, newPassword } = req.body;
+    const user = db.prepare("SELECT * FROM users WHERE email = ? AND password = ?").get(email, oldPassword);
+    
+    if (user) {
+      db.prepare("UPDATE users SET password = ? WHERE email = ?").run(newPassword, email);
+      res.json({ success: true });
+    } else {
+      res.status(401).json({ success: false, message: "Incorrect current password." });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

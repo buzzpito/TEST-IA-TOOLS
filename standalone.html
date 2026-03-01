@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COD Process - AI Marketing Suite</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Inter:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Framer Motion -->
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Gemini SDK -->
+    <script type="importmap">
+    {
+      "imports": {
+        "@google/genai": "https://esm.run/@google/genai"
+      }
+    }
+    </script>
+
+    <style>
+        :root {
+            --bg: #ffffff;
+            --bg2: #f8fafc;
+            --bg3: #f1f5f9;
+            --text: #0f172a;
+            --text2: #334155;
+            --text3: #64748b;
+            --border: #e2e8f0;
+            --border2: #cbd5e1;
+            --accent: #d97706;
+            --accent-bg: #fef3c7;
+            --toggle-bg: #e2e8f0;
+        }
+
+        [data-theme='dark'] {
+            --bg: #09090b;
+            --bg2: #18181b;
+            --bg3: #27272a;
+            --text: #fafafa;
+            --text2: #d4d4d8;
+            --text3: #a1a1aa;
+            --border: #27272a;
+            --border2: #3f3f46;
+            --accent: #f59e0b;
+            --accent-bg: #451a03;
+            --toggle-bg: #27272a;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        .font-syne { font-family: 'Syne', sans-serif; }
+        .font-dm-sans { font-family: 'DM Sans', sans-serif; }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Markdown-like styles for results */
+        .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+            font-family: 'Syne', sans-serif;
+            font-weight: 800;
+            margin-top: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+        .markdown-body h3 { font-size: 1.1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+        .markdown-body p { margin-bottom: 1rem; line-height: 1.6; }
+        .markdown-body ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1rem; }
+        .markdown-body li { margin-bottom: 0.5rem; }
+        
+        /* Animations */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fadeIn 0.4s ease-out forwards; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const { motion, AnimatePresence } = window.Motion;
+        import { GoogleGenAI } from "@google/genai";
+
+        // Icons Component
+        const Icon = ({ name, size = 20, className = "" }) => {
+            const iconRef = useRef(null);
+            useEffect(() => {
+                if (iconRef.current) {
+                    const lucideIcon = lucide.icons[name];
+                    if (lucideIcon) {
+                        iconRef.current.innerHTML = '';
+                        lucide.createIcons({
+                            icons: { [name]: lucideIcon },
+                            attrs: { strokeWidth: 2, width: size, height: size }
+                        });
+                    }
+                }
+            }, [name, size]);
+            return <i data-lucide={name} className={className} style={{ width: size, height: size, display: 'inline-block' }}></i>;
+        };
+
+        function App() {
+            const [user, setUser] = useState(JSON.parse(localStorage.getItem('cod_user')) || null);
+            const [theme, setTheme] = useState(localStorage.getItem('cod_theme') || 'light');
+            const [activeTab, setActiveTab] = useState('generator');
+            const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
+            const [showKeyInput, setShowKeyInput] = useState(!localStorage.getItem('gemini_api_key'));
+
+            // Auth State
+            const [loginEmail, setLoginEmail] = useState('');
+            const [loginPassword, setLoginPassword] = useState('');
+
+            // Generator State
+            const [inputMode, setInputMode] = useState('manual');
+            const [productUrl, setProductUrl] = useState('');
+            const [productName, setProductName] = useState('');
+            const [productInfo, setProductInfo] = useState('');
+            const [language, setLanguage] = useState('French');
+            const [result, setResult] = useState(null);
+            const [analysis, setAnalysis] = useState(null);
+            const [validation, setValidation] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [step, setStep] = useState(0);
+            const [error, setError] = useState(null);
+
+            // AdCopy State
+            const [adProductName, setAdProductName] = useState('');
+            const [adProductInfo, setAdProductInfo] = useState('');
+            const [adLanguage, setAdLanguage] = useState('French');
+            const [adResult, setAdResult] = useState(null);
+            const [adAnalysis, setAdAnalysis] = useState(null);
+            const [adLoading, setAdLoading] = useState(false);
+
+            // Image Translator State
+            const [selectedImage, setSelectedImage] = useState(null);
+            const [translating, setTranslating] = useState(false);
+            const [translatedImageUrl, setTranslatedImageUrl] = useState(null);
+
+            // Word Counter State
+            const [wordCounterText, setWordCounterText] = useState('');
+
+            useEffect(() => {
+                document.documentElement.setAttribute('data-theme', theme);
+                localStorage.setItem('cod_theme', theme);
+            }, [theme]);
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                // Simulated login
+                const userData = { email: loginEmail, isAdmin: loginEmail.includes('admin') };
+                setUser(userData);
+                localStorage.setItem('cod_user', JSON.stringify(userData));
+            };
+
+            const handleLogout = () => {
+                setUser(null);
+                localStorage.removeItem('cod_user');
+            };
+
+            const generate = async () => {
+                if (!apiKey) { setShowKeyInput(true); return; }
+                setLoading(true);
+                setError(null);
+                setResult(null);
+                setAnalysis(null);
+                setValidation(null);
+
+                try {
+                    const genAI = new GoogleGenAI({ apiKey });
+                    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+                    // Step 1: Generation
+                    setStep(1);
+                    const prompt1 = `Act as an e-commerce copywriting expert in ${language}. Generate a product page for: ${productName}. Info: ${productInfo}. 
+                    Structure: Hook, Intro, 4 Benefits, 4 Features, 4 Specs. Format with clear headings.`;
+                    const res1 = await model.generateContent(prompt1);
+                    const initialContent = res1.response.text();
+
+                    // Step 2: Analysis
+                    setStep(2);
+                    const prompt2 = `Analyze this product page for Facebook Ad compliance: ${initialContent}. 
+                    Provide a detailed analysis and then a Final Compliant Version.`;
+                    const res2 = await model.generateContent(prompt2);
+                    const analysisText = res2.response.text();
+                    
+                    const finalMatch = analysisText.split(/Final Compliant Version/i);
+                    setResult(finalMatch.length > 1 ? finalMatch[1].trim() : initialContent);
+                    setAnalysis(analysisText);
+
+                    // Step 3: Validation
+                    setStep(3);
+                    const prompt3 = `Is this content safe for Facebook Ads? ${result || initialContent}`;
+                    const res3 = await model.generateContent(prompt3);
+                    setValidation(res3.response.text());
+
+                    setStep(0);
+                } catch (err) {
+                    setError(err.message);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const generateAdCopy = async () => {
+                if (!apiKey) { setShowKeyInput(true); return; }
+                setAdLoading(true);
+                try {
+                    const genAI = new GoogleGenAI({ apiKey });
+                    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                    const prompt = `Act as a Media Buyer. Generate 2 high-converting Facebook ad copies in ${adLanguage} for: ${adProductName}. Info: ${adProductInfo}. Include a Compliance Check.`;
+                    const res = await model.generateContent(prompt);
+                    const text = res.response.text();
+                    const parts = text.split(/Compliance Check/i);
+                    setAdResult(parts[0].trim());
+                    setAdAnalysis(parts.length > 1 ? parts[1].trim() : null);
+                } catch (err) {
+                    alert(err.message);
+                } finally {
+                    setAdLoading(false);
+                }
+            };
+
+            const translateImage = async () => {
+                if (!apiKey) { setShowKeyInput(true); return; }
+                if (!selectedImage) return;
+                setTranslating(true);
+                try {
+                    const genAI = new GoogleGenAI({ apiKey });
+                    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                    const prompt = `Translate all text in this image to ${language}.`;
+                    const res = await model.generateContent([prompt, { inlineData: { data: selectedImage.split(',')[1], mimeType: 'image/png' } }]);
+                    alert("Translation result: " + res.response.text());
+                } catch (err) {
+                    alert(err.message);
+                } finally {
+                    setTranslating(false);
+                }
+            };
+
+            const stats = {
+                words: wordCounterText.trim() ? wordCounterText.trim().split(/\s+/).length : 0,
+                chars: wordCounterText.length,
+                sentences: wordCounterText.split(/[.!?]+/).filter(s => s.trim().length > 0).length,
+                paragraphs: wordCounterText.split(/\n+/).filter(p => p.trim().length > 0).length,
+                readingTime: Math.ceil((wordCounterText.trim() ? wordCounterText.trim().split(/\s+/).length : 0) / 200)
+            };
+
+            if (!user) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center bg-[var(--bg)] p-4">
+                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md bg-[var(--bg2)] p-8 rounded-2xl border border-[var(--border)] shadow-2xl">
+                            <div className="text-center mb-8">
+                                <div className="w-16 h-16 bg-amber-600 rounded-2xl flex items-center justify-center text-white mx-auto mb-4 shadow-lg">
+                                    <Icon name="ShoppingCart" size={32} />
+                                </div>
+                                <h1 className="font-syne text-2xl font-bold">COD Process</h1>
+                                <p className="text-sm text-[var(--text3)]">Enter any email/password to login</p>
+                            </div>
+                            <form onSubmit={handleLogin} className="flex flex-col gap-4">
+                                <input type="email" required value={loginEmail} onChange={e => setLoginEmail(e.target.value)} className="bg-[var(--bg3)] border border-[var(--border)] rounded-lg p-3 outline-none focus:border-amber-600" placeholder="Email" />
+                                <input type="password" required value={loginPassword} onChange={e => setLoginPassword(e.target.value)} className="bg-[var(--bg3)] border border-[var(--border)] rounded-lg p-3 outline-none focus:border-amber-600" placeholder="Password" />
+                                <button type="submit" className="bg-amber-600 text-white py-3 rounded-xl font-bold hover:bg-amber-700 transition-all">Login</button>
+                            </form>
+                        </motion.div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen flex flex-col md:flex-row">
+                    {/* API Key Modal */}
+                    <AnimatePresence>
+                        {showKeyInput && (
+                            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+                                <div className="bg-[var(--bg2)] p-8 rounded-2xl border border-[var(--border)] max-w-md w-full shadow-2xl">
+                                    <h2 className="font-syne text-xl font-bold mb-4">Gemini API Key Required</h2>
+                                    <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-lg p-3 mb-4 outline-none focus:border-amber-600" placeholder="Paste API Key..." />
+                                    <button onClick={() => { localStorage.setItem('gemini_api_key', apiKey); setShowKeyInput(false); }} className="w-full py-3 bg-amber-600 text-white rounded-xl font-bold">Save Key</button>
+                                </div>
+                            </div>
+                        )}
+                    </AnimatePresence>
+
+                    {/* Sidebar */}
+                    <aside className="w-full md:w-[260px] md:h-screen sticky top-0 md:border-r border-[var(--border)] bg-[var(--bg2)] z-50 flex flex-col">
+                        <div className="p-6 flex items-center gap-3">
+                            <div className="w-10 h-10 bg-amber-600 rounded-xl flex items-center justify-center text-white shadow-lg"><Icon name="ShoppingCart" size={22} /></div>
+                            <h1 className="font-syne font-extrabold text-lg">COD Process</h1>
+                        </div>
+                        <nav className="flex-1 p-4 flex flex-row md:flex-col gap-2 overflow-x-auto no-scrollbar">
+                            {[
+                                { id: 'generator', icon: 'Sparkles', label: 'PPs Generator' },
+                                { id: 'adcopy', icon: 'Megaphone', label: 'AdCopy Generator' },
+                                { id: 'translator', icon: 'Languages', label: 'Image Translator' },
+                                { id: 'wordcounter', icon: 'Type', label: 'Word Counter' }
+                            ].map(tab => (
+                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[13px] font-bold transition-all shrink-0 md:shrink ${activeTab === tab.id ? 'bg-amber-600 text-white shadow-md' : 'text-[var(--text2)] hover:bg-[var(--bg3)]'}`}>
+                                    <Icon name={tab.icon} size={18} />
+                                    <span>{tab.label}</span>
+                                </button>
+                            ))}
+                        </nav>
+                        <div className="p-4 mt-auto border-t border-[var(--border)] hidden md:flex flex-col gap-4">
+                            <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="flex items-center gap-2 text-xs font-bold text-[var(--text3)] uppercase">
+                                <Icon name={theme === 'dark' ? 'Sun' : 'Moon'} size={16} /> {theme === 'dark' ? 'Light' : 'Dark'}
+                            </button>
+                            <button onClick={handleLogout} className="flex items-center gap-2 text-xs font-bold text-red-500 uppercase">
+                                <Icon name="LogOut" size={16} /> Logout
+                            </button>
+                        </div>
+                    </aside>
+
+                    {/* Main */}
+                    <main className="flex-1 max-w-[1000px] w-full mx-auto px-6 py-10">
+                        {activeTab === 'generator' && (
+                            <div className="animate-in">
+                                <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-2xl p-8 shadow-xl mb-8">
+                                    <h2 className="font-syne text-xl font-bold mb-6 flex items-center gap-2"><Icon name="Sparkles" className="text-amber-600" /> PPs Generator</h2>
+                                    <div className="flex flex-col gap-6">
+                                        <input value={productName} onChange={e => setProductName(e.target.value)} className="bg-[var(--bg3)] border border-[var(--border)] rounded-lg p-3 outline-none focus:border-amber-600" placeholder="Product Name" />
+                                        <textarea value={productInfo} onChange={e => setProductInfo(e.target.value)} className="bg-[var(--bg3)] border border-[var(--border)] rounded-lg p-3 h-32 outline-none focus:border-amber-600" placeholder="Product Details" />
+                                        <button onClick={generate} disabled={loading} className="bg-amber-600 text-white py-4 rounded-xl font-bold font-syne hover:bg-amber-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2">
+                                            {loading ? <Icon name="Loader2" className="animate-spin" /> : <Icon name="Sparkles" />}
+                                            {loading ? `Step ${step}: AI Processing...` : 'Generate Expert Page'}
+                                        </button>
+                                    </div>
+                                </div>
+                                {result && (
+                                    <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-2xl p-8 shadow-xl animate-in">
+                                        <div className="markdown-body whitespace-pre-wrap text-sm">{result}</div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {activeTab === 'adcopy' && (
+                            <div className="animate-in">
+                                <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-2xl p-8 shadow-xl mb-8">
+                                    <h2 className="font-syne text-xl font-bold mb-6 flex items-center gap-2"><Icon name="Megaphone" className="text-amber-600" /> AdCopy Generator</h2>
+                                    <div className="flex flex-col gap-6">
+                                        <input value={adProductName} onChange={e => setAdProductName(e.target.value)} className="bg-[var(--bg3)] border border-[var(--border)] rounded-lg p-3 outline-none focus:border-amber-600" placeholder="Product Name" />
+                                        <textarea value={adProductInfo} onChange={e => setAdProductInfo(e.target.value)} className="bg-[var(--bg3)] border border-[var(--border)] rounded-lg p-3 h-32 outline-none focus:border-amber-600" placeholder="Selling Points" />
+                                        <button onClick={generateAdCopy} disabled={adLoading} className="bg-amber-600 text-white py-4 rounded-xl font-bold font-syne hover:bg-amber-700 transition-all">
+                                            {adLoading ? 'Generating...' : 'Create Ad Copies'}
+                                        </button>
+                                    </div>
+                                </div>
+                                {adResult && (
+                                    <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-2xl p-8 shadow-xl animate-in">
+                                        <div className="markdown-body whitespace-pre-wrap text-sm">{adResult}</div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {activeTab === 'translator' && (
+                            <div className="animate-in">
+                                <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-2xl p-8 shadow-xl mb-8 text-center">
+                                    <h2 className="font-syne text-xl font-bold mb-6 flex items-center justify-center gap-2"><Icon name="Languages" className="text-amber-600" /> Image Translator</h2>
+                                    <input type="file" accept="image/*" onChange={e => {
+                                        const file = e.target.files[0];
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => setSelectedImage(reader.result);
+                                        reader.readAsDataURL(file);
+                                    }} className="mb-6" />
+                                    {selectedImage && <img src={selectedImage} className="max-h-64 mx-auto mb-6 rounded-lg shadow-md" />}
+                                    <button onClick={translateImage} disabled={translating} className="w-full bg-amber-600 text-white py-4 rounded-xl font-bold hover:bg-amber-700 transition-all">
+                                        {translating ? 'Translating...' : 'Translate Image'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'wordcounter' && (
+                            <div className="animate-in flex flex-col gap-6">
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                    {Object.entries(stats).map(([key, val]) => (
+                                        <div key={key} className="bg-[var(--bg2)] border border-[var(--border)] rounded-xl p-4 flex flex-col items-center shadow-sm">
+                                            <span className="text-2xl font-syne font-bold">{val}{key === 'readingTime' ? 'm' : ''}</span>
+                                            <span className="text-[10px] uppercase font-bold text-[var(--text3)]">{key}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <textarea value={wordCounterText} onChange={e => setWordCounterText(e.target.value)} className="w-full h-[400px] bg-[var(--bg2)] border border-[var(--border)] rounded-2xl p-6 outline-none focus:ring-2 focus:ring-amber-600 transition-all resize-none shadow-xl" placeholder="Paste text here..." />
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+        setTimeout(() => lucide.createIcons(), 500);
+    </script>
+</body>
+</html>

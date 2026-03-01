@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { motion, AnimatePresence } from "motion/react";
-import { ShoppingCart, Moon, Sun, Sparkles, Copy, Check, AlertTriangle, Loader2, FileText, Languages, ShieldCheck, Search, CheckCircle2, LogOut, Settings, UserPlus, Trash2, Shield, UserX, UserCheck } from 'lucide-react';
+import { ShoppingCart, Moon, Sun, Sparkles, Copy, Check, AlertTriangle, Loader2, FileText, Languages, ShieldCheck, Search, CheckCircle2, LogOut, Settings, UserPlus, Trash2, Shield, UserX, UserCheck, Key, Megaphone, Type } from 'lucide-react';
 
 type Language = 'French' | 'English' | 'Arabic' | 'Darija Morocco';
 
@@ -35,13 +35,33 @@ export default function App() {
   const [step, setStep] = useState<number>(0); // 0: Idle, 1: Generating, 2: Analyzing, 3: Validating
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'generator' | 'translator'>('generator');
+  const [activeTab, setActiveTab] = useState<'generator' | 'translator' | 'adcopy' | 'wordcounter'>('generator');
+  
+  // Word Counter State
+  const [wordCounterText, setWordCounterText] = useState('');
+
+  // AdCopy Generator State
+  const [adInputMode, setAdInputMode] = useState<'manual' | 'url'>('manual');
+  const [adProductUrl, setAdProductUrl] = useState('');
+  const [adProductName, setAdProductName] = useState('');
+  const [adProductInfo, setAdProductInfo] = useState('');
+  const [adLanguage, setAdLanguage] = useState<Language>('French');
+  const [adResult, setAdResult] = useState<string | null>(null);
+  const [adAnalysis, setAdAnalysis] = useState<string | null>(null);
+  const [adLoading, setAdLoading] = useState(false);
+  const [adError, setAdError] = useState<string | null>(null);
 
   // Image Translator State
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
   const [translatedImageUrl, setTranslatedImageUrl] = useState<string | null>(null);
   const [translatorLang, setTranslatorLang] = useState<Language>('French');
+
+  // Password Modal State
+  const [showPwdModal, setShowPwdModal] = useState(false);
+  const [oldPwd, setOldPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [pwdMsg, setPwdMsg] = useState<{type: 'error' | 'success', text: string} | null>(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -156,6 +176,32 @@ export default function App() {
     }
   };
 
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwdMsg(null);
+    try {
+      const res = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user!.email, oldPassword: oldPwd, newPassword: newPwd })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPwdMsg({ type: 'success', text: 'Password updated successfully!' });
+        setTimeout(() => {
+          setShowPwdModal(false);
+          setOldPwd('');
+          setNewPwd('');
+          setPwdMsg(null);
+        }, 2000);
+      } else {
+        setPwdMsg({ type: 'error', text: data.message });
+      }
+    } catch (err) {
+      setPwdMsg({ type: 'error', text: 'Connection error. Please try again.' });
+    }
+  };
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -219,6 +265,101 @@ export default function App() {
       setError(`❌ Erreur de génération d'image : ${err.message}`);
     } finally {
       setTranslating(false);
+    }
+  };
+
+  const generateAdCopy = async () => {
+    if (adInputMode === 'manual' && !adProductName.trim() && !adProductInfo.trim()) {
+      setAdError("⚠️ Please enter at least the product name or description.");
+      return;
+    }
+    if (adInputMode === 'url' && !adProductUrl.trim()) {
+      setAdError("⚠️ Please enter the product URL.");
+      return;
+    }
+
+    setAdLoading(true);
+    setAdError(null);
+    setAdResult(null);
+    setAdAnalysis(null);
+    
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const model = "gemini-3-flash-preview";
+
+    try {
+      let cleanedUrl = adProductUrl;
+      if (adInputMode === 'url') {
+        try {
+          const urlObj = new URL(adProductUrl);
+          cleanedUrl = urlObj.origin + urlObj.pathname;
+        } catch (e) {
+          cleanedUrl = adProductUrl;
+        }
+      }
+
+      const langName = adLanguage === 'Darija Morocco' ? 'Darija Marocaine' : adLanguage;
+      const productContext = adInputMode === 'url' 
+        ? `URL du produit: ${cleanedUrl}` 
+        : `Nom: ${adProductName}\nDétails: ${adProductInfo}`;
+
+      const prompt = `Act as an expert Senior Media Buyer. Generate high-converting Facebook Ad copies in ${langName} for the following product.
+      
+Product Info: ${productContext}
+
+Follow this strict 8-step process for this generation:
+1. Analyze: Understand the product's purpose, benefits, and selling angles.
+2. Draft: Write two unique Facebook ad copies in ${langName}.
+3. Structure: Catchy intro (1-2 sentences) + CTA starting with '🛒 Commandez maintenant et...' (or translated equivalent) + soft urgency.
+4. Style: Persuasive, emotionally engaging, optimized for mobile.
+5. Emojis: Relevant emojis only at the very beginning.
+6. Marketing Evaluation: Rate copies (1-10) and suggest improvements for persuasion.
+7. Facebook Diagnostics: Predict 'Quality Ranking' and 'Engagement Rate Ranking' based on Facebook's Ad Relevance principles.
+8. Revision: Provide two final 'Revised Versions' that combine all suggestions from the evaluation steps.
+9. Compliance Check: Ensure 100% adherence to Facebook's policies (no misleading claims, no sensationalism).
+
+Format your response clearly using Markdown with these exact headings:
+### Original Copies
+### Expert Analysis & Diagnostics
+### Final Revised Versions
+### Compliance Check`;
+
+      const response = await ai.models.generateContent({
+        model,
+        contents: [{ parts: [{ text: prompt }] }],
+        config: { 
+          temperature: 0.7,
+          tools: adInputMode === 'url' ? [{ urlContext: {} }, { googleSearch: {} }] : undefined
+        },
+      });
+
+      if (!response.text) throw new Error("Empty response from AI.");
+      
+      const responseText = response.text;
+      
+      const originalMatch = responseText.match(/### Original Copies[\s\S]*?(?=###|$)/i);
+      const revisedMatch = responseText.match(/### Final Revised Versions[\s\S]*?(?=###|$)/i);
+      const analysisMatch = responseText.match(/### Expert Analysis & Diagnostics[\s\S]*?(?=###|$)/i);
+      const complianceMatch = responseText.match(/### Compliance Check[\s\S]*?(?=###|$)/i);
+
+      let copies = "";
+      if (revisedMatch) copies += revisedMatch[0].replace(/### Final Revised Versions/i, '').trim() + "\n\n";
+
+      let analysisText = "";
+      if (originalMatch) analysisText += originalMatch[0] + "\n\n";
+      if (analysisMatch) analysisText += analysisMatch[0] + "\n\n";
+      if (complianceMatch) analysisText += complianceMatch[0] + "\n\n";
+
+      if (!copies.trim()) {
+        setAdResult(responseText);
+      } else {
+        setAdResult(copies.trim());
+        setAdAnalysis(analysisText.trim() || null);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setAdError(`❌ Error: ${err.message}`);
+    } finally {
+      setAdLoading(false);
     }
   };
 
@@ -468,8 +609,8 @@ ${finalContent}`;
             <div className="w-12 h-12 bg-linear-to-br from-[var(--accent)] to-[#9a3412] rounded-2xl flex items-center justify-center text-white">
               <ShoppingCart size={24} />
             </div>
-            <h1 className="font-syne font-extrabold text-2xl text-[var(--text)]">Welcome Back</h1>
-            <p className="text-[var(--text2)] text-sm">Login to access the generator</p>
+            <h1 className="font-syne font-extrabold text-2xl text-[var(--text)]">COD Process</h1>
+            <p className="text-[var(--text2)] text-sm">Login to access the COD Process</p>
           </div>
 
           <form onSubmit={handleLogin} className="flex flex-col gap-4">
@@ -522,7 +663,7 @@ ${finalContent}`;
           </div>
           <div className="flex flex-col">
             <h1 className="font-syne font-extrabold text-[16px] text-[var(--text)] leading-tight">
-              COD System
+              COD Process
             </h1>
           </div>
         </div>
@@ -541,6 +682,20 @@ ${finalContent}`;
           >
             <Languages size={18} />
             <span>Image Translator</span>
+          </button>
+          <button 
+            onClick={() => { setActiveTab('adcopy'); setShowAdmin(false); }}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[13px] font-bold transition-all shrink-0 md:shrink ${activeTab === 'adcopy' && !showAdmin ? 'bg-[var(--accent)] text-white shadow-md' : 'text-[var(--text2)] hover:bg-[var(--bg3)] hover:text-[var(--text)]'}`}
+          >
+            <Megaphone size={18} />
+            <span>AdCopy Generator</span>
+          </button>
+          <button 
+            onClick={() => { setActiveTab('wordcounter'); setShowAdmin(false); }}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl text-[13px] font-bold transition-all shrink-0 md:shrink ${activeTab === 'wordcounter' && !showAdmin ? 'bg-[var(--accent)] text-white shadow-md' : 'text-[var(--text2)] hover:bg-[var(--bg3)] hover:text-[var(--text)]'}`}
+          >
+            <Type size={18} />
+            <span>Word Counter</span>
           </button>
           
           {user.isAdmin && (
@@ -567,13 +722,22 @@ ${finalContent}`;
                 {theme === 'dark' ? 'Dark' : 'Light'}
               </span >
             </div>
-            <button 
-              onClick={handleLogout}
-              className="p-2 text-[var(--text3)] hover:text-red-500 transition-all"
-              title="Logout"
-            >
-              <LogOut size={18} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button 
+                onClick={() => setShowPwdModal(true)}
+                className="p-2 text-[var(--text3)] hover:text-[var(--text)] transition-all"
+                title="Change Password"
+              >
+                <Key size={18} />
+              </button>
+              <button 
+                onClick={handleLogout}
+                className="p-2 text-[var(--text3)] hover:text-red-500 transition-all"
+                title="Logout"
+              >
+                <LogOut size={18} />
+              </button>
+            </div>
           </div>
           
           <div className="flex items-center gap-3 px-2 py-2 bg-[var(--bg3)] rounded-lg border border-[var(--border)]">
@@ -598,11 +762,39 @@ ${finalContent}`;
           </div>
           <div className="flex items-center gap-3">
             <button onClick={toggleTheme} className="text-[var(--text3)]"><Sun size={18}/></button>
+            <button onClick={() => setShowPwdModal(true)} className="text-[var(--text3)]"><Key size={18}/></button>
             <button onClick={handleLogout} className="text-[var(--text3)]"><LogOut size={18}/></button>
           </div>
         </header>
 
-        <main className="flex-1 max-w-[840px] w-full mx-auto px-4 sm:px-6 py-6 sm:py-10">
+        <main className="flex-1 max-w-[1000px] w-full mx-auto px-4 sm:px-6 py-6 sm:py-10">
+        <div className="md:hidden flex bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-1 mb-6 overflow-x-auto no-scrollbar">
+          <button 
+            onClick={() => { setActiveTab('generator'); setShowAdmin(false); }}
+            className={`flex-1 min-w-[120px] py-2 text-[12px] font-bold rounded-lg transition-all ${activeTab === 'generator' && !showAdmin ? 'bg-[var(--accent)] text-white shadow-sm' : 'text-[var(--text3)] hover:text-[var(--text)]'}`}
+          >
+            PPs Generator
+          </button>
+          <button 
+            onClick={() => { setActiveTab('translator'); setShowAdmin(false); }}
+            className={`flex-1 min-w-[120px] py-2 text-[12px] font-bold rounded-lg transition-all ${activeTab === 'translator' && !showAdmin ? 'bg-[var(--accent)] text-white shadow-sm' : 'text-[var(--text3)] hover:text-[var(--text)]'}`}
+          >
+            Image Translator
+          </button>
+          <button 
+            onClick={() => { setActiveTab('adcopy'); setShowAdmin(false); }}
+            className={`flex-1 min-w-[120px] py-2 px-3 text-[12px] font-bold rounded-lg transition-all ${activeTab === 'adcopy' && !showAdmin ? 'bg-[var(--accent)] text-white shadow-sm' : 'text-[var(--text3)] hover:text-[var(--text)]'}`}
+          >
+            AdCopy Generator
+          </button>
+          <button 
+            onClick={() => { setActiveTab('wordcounter'); setShowAdmin(false); }}
+            className={`flex-1 min-w-[120px] py-2 px-3 text-[12px] font-bold rounded-lg transition-all ${activeTab === 'wordcounter' && !showAdmin ? 'bg-[var(--accent)] text-white shadow-sm' : 'text-[var(--text3)] hover:text-[var(--text)]'}`}
+          >
+            Word Counter
+          </button>
+        </div>
+
           {showAdmin ? (
             <section className="bg-[var(--bg2)] border border-[var(--border)] rounded-2xl p-5 sm:p-8 mb-5 animate-in fade-in slide-in-from-bottom-4 duration-300 shadow-xl">
               <div className="flex items-center justify-between mb-8">
@@ -806,6 +998,264 @@ ${finalContent}`;
                 </motion.div>
               )}
             </AnimatePresence>
+          </section>
+        ) : activeTab === 'adcopy' ? (
+          <section className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column: Inputs */}
+              <div className="lg:col-span-5 flex flex-col gap-5">
+                <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-2xl p-5 sm:p-6 shadow-sm">
+                  <div className="flex items-center gap-2.5 mb-5 text-[10.5px] font-bold tracking-widest uppercase text-[var(--text3)] after:content-[''] after:flex-1 after:h-[1px] after:bg-[var(--border)]">
+                    AdCopy Settings
+                  </div>
+
+                  <div className="flex flex-col gap-5">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10.5px] font-bold tracking-wider uppercase text-[var(--text3)] flex items-center gap-2">
+                        <Languages size={14} /> Output Language
+                      </label>
+                      <select 
+                        value={adLanguage}
+                        onChange={(e) => setAdLanguage(e.target.value as Language)}
+                        className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-lg px-3.5 py-2.5 text-[var(--text)] font-dm-sans text-[13.5px] outline-hidden focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent-bg)] transition-all appearance-none cursor-pointer"
+                      >
+                        <option value="French">🇫🇷 French</option>
+                        <option value="English">🇺🇸 English</option>
+                        <option value="Arabic">🇸🇦 Arabic</option>
+                        <option value="Darija Morocco">🇲🇦 Darija Morocco</option>
+                      </select>
+                    </div>
+
+                    <div className="flex p-1 bg-[var(--bg3)] border border-[var(--border)] rounded-xl mb-2">
+                      <button 
+                        onClick={() => setAdInputMode('manual')}
+                        className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all ${adInputMode === 'manual' ? 'bg-[var(--accent)] text-white shadow-sm' : 'text-[var(--text3)] hover:text-[var(--text)]'}`}
+                      >
+                        Manual Input
+                      </button>
+                      <button 
+                        onClick={() => setAdInputMode('url')}
+                        className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all ${adInputMode === 'url' ? 'bg-[var(--accent)] text-white shadow-sm' : 'text-[var(--text3)] hover:text-[var(--text)]'}`}
+                      >
+                        Product Link
+                      </button>
+                    </div>
+
+                    {adInputMode === 'url' ? (
+                      <div className="flex flex-col gap-1.5">
+                        <label className="text-[10.5px] font-bold tracking-wider uppercase text-[var(--text3)]">
+                          Product URL
+                        </label>
+                        <input 
+                          type="url" 
+                          value={adProductUrl}
+                          onChange={(e) => setAdProductUrl(e.target.value)}
+                          placeholder="https://example.com/product/..."
+                          className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-lg px-3.5 py-2.5 text-[var(--text)] font-dm-sans text-[13.5px] outline-hidden focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent-bg)] transition-all"
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[10.5px] font-bold tracking-wider uppercase text-[var(--text3)]">
+                            Product Name
+                          </label>
+                          <input 
+                            type="text" 
+                            value={adProductName}
+                            onChange={(e) => setAdProductName(e.target.value)}
+                            placeholder="e.g.: 5L Air Fryer"
+                            className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-lg px-3.5 py-2.5 text-[var(--text)] font-dm-sans text-[13.5px] outline-hidden focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent-bg)] transition-all"
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-1.5">
+                          <label className="text-[10.5px] font-bold tracking-wider uppercase text-[var(--text3)]">
+                            Description & Features
+                          </label>
+                          <textarea 
+                            value={adProductInfo}
+                            onChange={(e) => setAdProductInfo(e.target.value)}
+                            placeholder="Paste all available info: description, materials, benefits..."
+                            className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-lg px-3.5 py-2.5 text-[var(--text)] font-dm-sans text-[13.5px] outline-hidden focus:border-[var(--accent)] focus:ring-3 focus:ring-[var(--accent-bg)] transition-all min-h-[150px] resize-y"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {adError && (
+                    <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-3.5 text-red-500 text-[13px] mt-4 flex items-center gap-2">
+                      <AlertTriangle size={16} />
+                      {adError}
+                    </div>
+                  )}
+
+                  <button 
+                    onClick={generateAdCopy}
+                    disabled={adLoading}
+                    className="w-full p-4 bg-linear-to-br from-[var(--accent)] to-[#b45309] text-white rounded-xl text-[14px] font-bold font-syne cursor-pointer shadow-[var(--shadow)] flex items-center justify-center gap-2.5 transition-all hover:-translate-y-0.5 disabled:bg-[var(--border2)] disabled:text-[var(--text3)] disabled:shadow-none disabled:cursor-not-allowed mt-6"
+                  >
+                    {adLoading ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        Generating Ad Copies...
+                      </>
+                    ) : (
+                      <>
+                        <Megaphone size={18} />
+                        ✦ Generate Ad Copies
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Right Column: Results */}
+              <div className="lg:col-span-7">
+                <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-2xl p-5 sm:p-6 shadow-sm min-h-[400px] flex flex-col">
+                  {adLoading ? (
+                    <div className="flex flex-col items-center justify-center flex-1 gap-4 text-[var(--text2)]">
+                      <Loader2 size={32} className="animate-spin text-[var(--accent)]" />
+                      <p className="text-[14px]">Analyzing product & crafting high-converting copies...</p>
+                    </div>
+                  ) : adResult ? (
+                    <div className="flex flex-col gap-5">
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-[var(--bg3)] border border-[var(--border)] rounded-2xl overflow-hidden shadow-inner"
+                      >
+                       <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg2)]">
+                         <div className="font-syne text-[13px] font-bold text-[var(--text)] flex items-center gap-2.5">
+                           <div className="w-2 h-2 bg-[var(--success)] rounded-full shadow-[0_0_0_3px_var(--success-bg)]" />
+                           Generated Ad Copies
+                         </div>
+                         <button 
+                           onClick={() => { 
+                             navigator.clipboard.writeText(adResult); 
+                             setCopied(true); 
+                             setTimeout(() => setCopied(false), 2000); 
+                           }} 
+                           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--border2)] text-[12px] font-medium transition-all ${copied ? 'text-[var(--success)] border-[var(--success)]' : 'text-[var(--text2)] hover:border-[var(--text2)] hover:text-[var(--text)]'}`}
+                         >
+                           {copied ? <Check size={14}/> : <Copy size={14}/>} 
+                           {copied ? 'Copied!' : 'Copy'}
+                         </button>
+                       </div>
+                       <div 
+                         className={`p-6 whitespace-pre-wrap text-[14px] sm:text-[15px] leading-[1.9] text-[var(--result-text)] max-h-[700px] overflow-y-auto ${adLanguage === 'Arabic' || adLanguage === 'Darija Morocco' ? 'text-right' : 'text-left'}`}
+                         dir={adLanguage === 'Arabic' || adLanguage === 'Darija Morocco' ? 'rtl' : 'ltr'}
+                       >
+                         {adResult}
+                       </div>
+                      </motion.div>
+
+                      {adAnalysis && (
+                        <motion.div 
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5"
+                        >
+                          <div className="flex items-center gap-2 text-emerald-500 font-bold text-[13px] mb-3 uppercase tracking-wider">
+                            <CheckCircle2 size={16} /> Résumé de l'Optimisation
+                          </div>
+                          <ul className="text-[13px] text-[var(--text2)] space-y-2">
+                            <li className="flex items-start gap-2">
+                              <span className="text-[var(--accent)] mt-1">•</span>
+                              <span>Rédaction experte orientée conversion en {adLanguage}.</span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                              <span className="text-[var(--accent)] mt-1">•</span>
+                              <span>Analyse et correction automatique des risques Facebook Ads.</span>
+                            </li>
+                            <li className="flex items-start gap-2">
+                              <span className="text-[var(--accent)] mt-1">•</span>
+                              <span>Validation finale de la conformité et de la structure.</span>
+                            </li>
+                          </ul>
+                        </motion.div>
+                      )}
+
+                      {adAnalysis && (
+                        <details className="group">
+                          <summary className="flex items-center justify-center gap-2 py-3 px-4 bg-[var(--bg3)] border border-[var(--border)] rounded-xl cursor-pointer text-[12px] font-bold text-[var(--text3)] hover:text-[var(--text)] transition-all list-none">
+                            <Search size={14} /> View Full Analysis & Compliance Check
+                          </summary>
+                          <div className="mt-4 p-6 bg-[var(--bg2)] border border-[var(--border)] rounded-2xl text-[13px] text-[var(--text2)] leading-relaxed whitespace-pre-wrap">
+                            {adAnalysis}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center flex-1 text-[var(--text3)] gap-4 opacity-50 py-12">
+                      <Megaphone size={48} />
+                      <p className="text-[14px]">Your generated ad copies will appear here.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        ) : activeTab === 'wordcounter' ? (
+          <section className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="bg-[var(--bg2)] border border-[var(--border)] rounded-2xl p-5 sm:p-8 shadow-xl flex flex-col gap-6">
+              <div className="flex items-center gap-2.5 text-[11px] font-bold tracking-widest uppercase text-[var(--text3)] after:content-[''] after:flex-1 after:h-[1px] after:bg-[var(--border)]">
+                Word Counter
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col items-center justify-center gap-1">
+                  <span className="text-[24px] font-syne font-bold text-[var(--text)]">
+                    {wordCounterText.trim() ? wordCounterText.trim().split(/\s+/).length : 0}
+                  </span>
+                  <span className="text-[11px] uppercase tracking-wider text-[var(--text3)] font-bold">Words</span>
+                </div>
+                <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col items-center justify-center gap-1">
+                  <span className="text-[24px] font-syne font-bold text-[var(--text)]">
+                    {wordCounterText.length}
+                  </span>
+                  <span className="text-[11px] uppercase tracking-wider text-[var(--text3)] font-bold">Characters</span>
+                </div>
+                <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col items-center justify-center gap-1">
+                  <span className="text-[24px] font-syne font-bold text-[var(--text)]">
+                    {wordCounterText.split(/[.!?]+/).filter(s => s.trim().length > 0).length}
+                  </span>
+                  <span className="text-[11px] uppercase tracking-wider text-[var(--text3)] font-bold">Sentences</span>
+                </div>
+                <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col items-center justify-center gap-1">
+                  <span className="text-[24px] font-syne font-bold text-[var(--text)]">
+                    {wordCounterText.split(/\n+/).filter(p => p.trim().length > 0).length}
+                  </span>
+                  <span className="text-[11px] uppercase tracking-wider text-[var(--text3)] font-bold">Paragraphs</span>
+                </div>
+                <div className="bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-4 flex flex-col items-center justify-center gap-1 col-span-2 md:col-span-1">
+                  <span className="text-[24px] font-syne font-bold text-[var(--text)]">
+                    {Math.ceil((wordCounterText.trim() ? wordCounterText.trim().split(/\s+/).length : 0) / 200)}m
+                  </span>
+                  <span className="text-[11px] uppercase tracking-wider text-[var(--text3)] font-bold">Reading Time</span>
+                </div>
+              </div>
+
+              <div className="relative">
+                <textarea
+                  value={wordCounterText}
+                  onChange={(e) => setWordCounterText(e.target.value)}
+                  placeholder="Type or paste your text here..."
+                  className="w-full h-[400px] bg-[var(--bg3)] border border-[var(--border)] rounded-xl p-5 text-[var(--text)] font-dm-sans text-[15px] leading-relaxed outline-hidden focus:border-[var(--accent)] focus:ring-4 focus:ring-[var(--accent-bg)] transition-all resize-none"
+                />
+                {wordCounterText && (
+                  <button
+                    onClick={() => setWordCounterText('')}
+                    className="absolute top-4 right-4 p-2 text-[var(--text3)] hover:text-[var(--text)] bg-[var(--bg2)] rounded-lg border border-[var(--border)] transition-colors"
+                    title="Clear text"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
           </section>
         ) : (
           <>
@@ -1051,6 +1501,73 @@ ${finalContent}`;
         </p>
       </footer>
       </div>
+
+      {/* Change Password Modal */}
+      <AnimatePresence>
+        {showPwdModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-[var(--bg2)] border border-[var(--border)] rounded-2xl p-6 w-full max-w-sm shadow-2xl"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-[var(--accent-bg)] rounded-xl flex items-center justify-center text-[var(--accent)]">
+                  <Key size={20} />
+                </div>
+                <h3 className="font-syne font-bold text-lg text-[var(--text)]">Change Password</h3>
+              </div>
+
+              <form onSubmit={handleChangePassword} className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-[var(--text3)]">Current Password</label>
+                  <input 
+                    type="password" 
+                    value={oldPwd}
+                    onChange={(e) => setOldPwd(e.target.value)}
+                    className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-lg px-3.5 py-2.5 text-[var(--text)] text-[14px] outline-hidden focus:border-[var(--accent)] transition-all"
+                    required
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-[var(--text3)]">New Password</label>
+                  <input 
+                    type="password" 
+                    value={newPwd}
+                    onChange={(e) => setNewPwd(e.target.value)}
+                    className="w-full bg-[var(--bg3)] border border-[var(--border)] rounded-lg px-3.5 py-2.5 text-[var(--text)] text-[14px] outline-hidden focus:border-[var(--accent)] transition-all"
+                    required
+                  />
+                </div>
+
+                {pwdMsg && (
+                  <div className={`p-3 rounded-lg text-[13px] flex items-center gap-2 ${pwdMsg.type === 'error' ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 'bg-green-500/10 text-green-500 border border-green-500/20'}`}>
+                    {pwdMsg.type === 'error' ? <AlertTriangle size={16} /> : <Check size={16} />}
+                    {pwdMsg.text}
+                  </div>
+                )}
+
+                <div className="flex gap-3 mt-2">
+                  <button 
+                    type="button"
+                    onClick={() => { setShowPwdModal(false); setPwdMsg(null); setOldPwd(''); setNewPwd(''); }}
+                    className="flex-1 py-2.5 rounded-xl border border-[var(--border2)] text-[var(--text2)] font-bold text-[13px] hover:bg-[var(--bg3)] hover:text-[var(--text)] transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-xl bg-[var(--accent)] text-white font-bold text-[13px] hover:opacity-90 transition-all shadow-md"
+                  >
+                    Save
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
